@@ -9,12 +9,12 @@ from telegram import (
 from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
-    CallbackQueryHandler
+    CallbackQueryHandler,
+    CommandHandler
 )
 
 # ================== CONFIG ==================
 BOT_TOKEN = "8235313223:AAGlU62C5YI6RNLaR_q9fIo2VfMv3yTTWAw"
-CHAT_ID = "5790502622"
 ODDS_API_KEY = "5c5cb9af7ca7fdd266d70692aa8d9a58"
 
 NHL_ENDPOINT = "https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds"
@@ -30,6 +30,7 @@ def get_nhl_matches():
         "markets": "h2h",
         "oddsFormat": "decimal"
     }
+
     r = requests.get(NHL_ENDPOINT, params=params, timeout=10)
     if r.status_code != 200:
         return []
@@ -80,41 +81,62 @@ def format_message():
         )
     return msg
 
-# ================== BUTTONS ==================
-async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
+# ================== MENUS ==================
+def main_menu():
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton("📊 Pronostics NHL", callback_data="pronostics")],
         [InlineKeyboardButton("💰 Bankroll", callback_data="bankroll")],
         [InlineKeyboardButton("📈 Stats", callback_data="stats")]
-    ]
-    await update.callback_query.message.reply_text(
+    ])
+
+def back_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⬅️ Retour au menu", callback_data="menu")]
+    ])
+
+# ================== HANDLERS ==================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
         "📌 MENU PRINCIPAL",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=main_menu()
     )
 
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "pronostics":
-        await query.message.reply_text(format_message())
+    if query.data == "menu":
+        await query.message.edit_text("📌 MENU PRINCIPAL", reply_markup=main_menu())
+
+    elif query.data == "pronostics":
+        await query.message.edit_text(
+            format_message(),
+            reply_markup=back_menu()
+        )
+
     elif query.data == "bankroll":
-        await query.message.reply_text("💰 Gestion bankroll : mise fixe recommandée (1–3%).")
+        await query.message.edit_text(
+            "💰 Gestion bankroll\n\n➡️ Mise conseillée : 1 à 3 % du capital.",
+            reply_markup=back_menu()
+        )
+
     elif query.data == "stats":
-        await query.message.reply_text("📈 Stats en cours de construction.")
+        await query.message.edit_text(
+            "📈 Statistiques bientôt disponibles.",
+            reply_markup=back_menu()
+        )
 
 # ================== MAIN ==================
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_buttons))
-    app.add_handler(CallbackQueryHandler(menu, pattern="^$"))
 
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-
 
 
 
