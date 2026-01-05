@@ -1,143 +1,26 @@
-import logging
-import requests
-from datetime import datetime, timezone
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup
-)
-from telegram.ext import (
-    ApplicationBuilder,
-    ContextTypes,
-    CallbackQueryHandler,
-    CommandHandler
-)
-
-# ================== CONFIG ==================
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import os
+
+# Le token DOIT être dans les variables d'environnement Render
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ODDS_API_KEY = os.getenv("PDDS_API_KEY")
 
-NHL_ENDPOINT = "https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds"
-MIN_ODDS = 1.45
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN manquant dans les variables d'environnement")
 
-logging.basicConfig(level=logging.INFO)
-
-# ================== NHL DATA ==================
-def get_nhl_matches():
-    params = {
-        "apiKey": ODDS_API_KEY,
-        "regions": "eu",
-        "markets": "h2h",
-        "oddsFormat": "decimal"
-    }
-
-    r = requests.get(NHL_ENDPOINT, params=params, timeout=10)
-    if r.status_code != 200:
-        return []
-
-    data = r.json()
-    today = datetime.now(timezone.utc).date()
-    matches = []
-
-    for match in data:
-        start = datetime.fromisoformat(match["commence_time"].replace("Z", "+00:00"))
-        if start.date() != today:
-            continue
-
-        home = match["home_team"]
-        away = match["away_team"]
-
-        for bookmaker in match["bookmakers"]:
-            for market in bookmaker["markets"]:
-                for outcome in market["outcomes"]:
-                    if outcome["price"] >= MIN_ODDS:
-                        matches.append({
-                            "time": start.strftime("%H:%M"),
-                            "match": f"{home} vs {away}",
-                            "pick": outcome["name"],
-                            "odds": outcome["price"]
-                        })
-                        break
-                break
-            break
-
-    return matches
-
-# ================== MESSAGE ==================
-def format_message():
-    picks = get_nhl_matches()
-    today = datetime.now(timezone.utc).strftime("%d/%m/%Y")
-
-    if not picks:
-        return f"🏒 NHL MACHINE À CASH\n📅 {today}\n\n⚠️ Aucun pari détecté aujourd'hui."
-
-    msg = f"🏒 NHL MACHINE À CASH\n📅 {today}\n\n"
-    for p in picks[:5]:
-        msg += (
-            f"⏰ {p['time']}\n"
-            f"🏒 {p['match']}\n"
-            f"🎯 Victoire : {p['pick']}\n"
-            f"💰 Cote : {p['odds']}\n\n"
-        )
-    return msg
-
-# ================== MENUS ==================
-def main_menu():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 Pronostics NHL", callback_data="pronostics")],
-        [InlineKeyboardButton("💰 Bankroll", callback_data="bankroll")],
-        [InlineKeyboardButton("📈 Stats", callback_data="stats")]
-    ])
-
-def back_menu():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⬅️ Retour au menu", callback_data="menu")]
-    ])
-
-# ================== HANDLERS ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📌 MENU PRINCIPAL",
-        reply_markup=main_menu()
-    )
+    await update.message.reply_text("✅ Bot en ligne et fonctionnel")
 
-async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🏓 Pong")
 
-    if query.data == "menu":
-        await query.message.edit_text("📌 MENU PRINCIPAL", reply_markup=main_menu())
-
-    elif query.data == "pronostics":
-        await query.message.edit_text(
-            format_message(),
-            reply_markup=back_menu()
-        )
-
-    elif query.data == "bankroll":
-        await query.message.edit_text(
-            "💰 Gestion bankroll\n\n➡️ Mise conseillée : 1 à 3 % du capital.",
-            reply_markup=back_menu()
-        )
-
-    elif query.data == "stats":
-        await query.message.edit_text(
-            "📈 Statistiques bientôt disponibles.",
-            reply_markup=back_menu()
-        )
-
-# ================== MAIN ==================
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(handle_buttons))
+    app.add_handler(CommandHandler("ping", ping))
 
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-
-
-
