@@ -1,2 +1,2 @@
-web: python paris_ia_final.py
+worker: python paris_ia_final.py
 

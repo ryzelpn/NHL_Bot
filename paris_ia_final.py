@@ -1,116 +1,98 @@
-import requests
 import datetime
+import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
+# 🔹 Tes infos
 API_KEY = "5c5cb9af7ca7fdd266d70692aa8d9a58"
 BOT_TOKEN = "8235313223:AAGlU62C5YI6RNLaR_q9fIo2VfMv3yTTWAw"
-CHAT_ID = "5790502622"
-MIN_COTE = 1.45
 
-# Stockage simple pour l'exemple
-historique = []
-bankroll = {"solde": 1000.0}
+API_URL = f"https://api.the-odds-api.com/v4/sports/nhl/odds/?apiKey={API_KEY}&regions=us&markets=h2h,spreads,totals"
 
-# --- Fonction récupération pronostics NHL ---
-def get_nhl_pronostics():
-    url = f"https://api.the-odds-api.com/v4/sports/nhl/odds/?regions=us&markets=h2h,spreads,totals&apiKey={API_KEY}"
+# 🔹 Récupère les matchs NHL du jour
+def fetch_nhl_matches():
     try:
-        res = requests.get(url).json()
-        today = datetime.datetime.now().date()
-        pronostics = []
+        resp = requests.get(API_URL)
+        data = resp.json()
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        matches_today = []
 
-        for match in res:
-            # Vérifier la date du match
-            commence = datetime.datetime.fromisoformat(match["commence_at"].replace("Z", "+00:00")).date()
-            if commence != today:
-                continue
-
-            # Analyse simple pour choisir le pari le plus safe
-            best_market = None
-            best_odd = 0
-            description = ""
-            for bookmaker in match.get("bookmakers", []):
-                for market in bookmaker.get("markets", []):
-                    if market["key"] == "h2h":
-                        for outcome in market["outcomes"]:
-                            cote = outcome["price"]
-                            if cote >= MIN_COTE and cote > best_odd:
-                                best_odd = cote
-                                best_market = "Victoire"
-                                description = f"{outcome['name']} (cote approx: {cote})"
-                    elif market["key"] == "spreads":
-                        for outcome in market["outcomes"]:
-                            cote = outcome["price"]
-                            handicap = outcome.get("point", 0)
-                            if cote >= MIN_COTE and cote > best_odd:
-                                best_odd = cote
-                                best_market = "Handicap"
-                                description = f"{outcome['name']} ({handicap:+} buts, cote approx: {cote})"
-                    elif market["key"] == "totals":
-                        for outcome in market["outcomes"]:
-                            cote = outcome["price"]
-                            total = outcome.get("total", 0)
-                            type_total = outcome.get("name", "")
-                            if cote >= MIN_COTE and cote > best_odd:
-                                best_odd = cote
-                                best_market = "Total"
-                                description = f"{type_total} {total} buts (cote approx: {cote})"
-            if best_market:
-                pronostics.append({
-                    "heure": datetime.datetime.fromisoformat(match["commence_at"].replace("Z", "+00:00")).strftime("%H:%M"),
-                    "match": f"{match['home_team']} vs {match['away_team']}",
-                    "paris": description
-                })
-        return pronostics
+        for match in data:
+            match_time = datetime.datetime.fromisoformat(match["commence_time"].replace("Z","+00:00"))
+            if match_time.date() == today:
+                matches_today.append(match)
+        return matches_today
     except Exception as e:
-        return [{"match": "Erreur NHL", "paris": str(e)}]
+        print("Erreur récupération NHL:", e)
+        return []
 
-# --- Fonctions Telegram ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# 🔹 Formate un match pour Telegram (1 seul pari par match)
+def format_match(match):
+    home = match.get("home_team", "Équipe 1")
+    away = match.get("away_team", "Équipe 2")
+    commence_time = match.get("commence_time", "Inconnu")
+
+    try:
+        markets = match["bookmakers"][0]["markets"]
+        for market in markets:
+            if market["key"] == "h2h":
+                outcome = market["outcomes"][0]
+                return f"{commence_time} - {home} vs {away}\n🎯 Pari recommandé: {outcome['name']} (cote approx: {outcome['price']})"
+            elif market["key"] == "spreads":
+                outcome = market["outcomes"][0]
+                return f"{commence_time} - {home} vs {away}\n🎯 Handicap: {outcome['name']} {outcome.get('point', '')} (cote approx: {outcome['price']})"
+            elif market["key"] == "totals":
+                outcome = market["outcomes"][0]
+                return f"{commence_time} - {home} vs {away}\n🎯 Totals: {outcome['name']} {outcome.get('point', '')} (cote approx: {outcome['price']})"
+    except:
+        return f"{commence_time} - {home} vs {away}\n⚠️ Aucun pari disponible"
+
+# 🔹 Envoie les boutons automatiquement
+async def send_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("Pronostics", callback_data='pronostics')],
-        [InlineKeyboardButton("Stats", callback_data='stats')],
-        [InlineKeyboardButton("Bankroll", callback_data='bankroll')],
-        [InlineKeyboardButton("Historique", callback_data='historique')]
+        [InlineKeyboardButton("Pronostics", callback_data="pronostics")],
+        [InlineKeyboardButton("Stats", callback_data="stats")],
+        [InlineKeyboardButton("Bankroll", callback_data="bankroll")],
+        [InlineKeyboardButton("Historique", callback_data="historique")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text('Bienvenue sur NHL MACHINE À CASH V5 ! Choisissez une option :', reply_markup=reply_markup)
+    await update.message.reply_text("Bienvenue ! Choisissez une option :", reply_markup=reply_markup)
 
+# 🔹 Gestion des boutons
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
     if query.data == "pronostics":
-        pronos = get_nhl_pronostics()
-        if not pronos:
-            message = f"⚠️ Aucun pronostic trouvé pour aujourd'hui ({datetime.datetime.now().strftime('%d/%m/%Y')})"
+        matches = fetch_nhl_matches()
+        if not matches:
+            message = f"🧪 NHL MACHINE À CASH\n📅 {datetime.datetime.now().strftime('%d/%m/%Y')}\n\n⚠️ Aucun match ou pronostic trouvé pour aujourd'hui."
         else:
-            message = f"🏒 NHL MACHINE À CASH\n📅 {datetime.datetime.now().strftime('%d/%m/%Y')}\n\n"
-            for p in pronos:
-                message += f"{p['heure']} - {p['match']}\n🎯 {p['paris']}\n\n"
-        await query.message.reply_text(message)
+            message = f"🧪 NHL MACHINE À CASH\n📅 {datetime.datetime.now().strftime('%d/%m/%Y')}\n\n"
+            for m in matches:
+                message += format_match(m) + "\n\n"
+        await query.edit_message_text(message)
+
     elif query.data == "stats":
-        message = f"📊 Statistiques bot :\nPronostics envoyés : {len(historique)}\n"
-        await query.message.reply_text(message)
+        await query.edit_message_text("📊 Statistiques: Prochainement...")
+
     elif query.data == "bankroll":
-        message = f"💰 Bankroll : {bankroll['solde']}€"
-        await query.message.reply_text(message)
+        await query.edit_message_text("💰 Bankroll: Prochainement...")
+
     elif query.data == "historique":
-        if not historique:
-            await query.message.reply_text("Aucun historique pour l'instant.")
-        else:
-            message = "📝 Historique des pronostics :\n"
-            for h in historique[-10:]:
-                message += f"{h}\n"
-            await query.message.reply_text(message)
+        await query.edit_message_text("🗂 Historique des pronostics: Prochainement...")
 
-# --- Lancer bot ---
-app = ApplicationBuilder().token(BOT_TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(button))
+# 🔹 Lancement du bot
+if __name__ == "__main__":
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-print("Bot NHL MACHINE À CASH lancé !")
-app.run_polling()
+    # Boutons dès le premier message
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), send_buttons))
+    
+    # Gestion boutons
+    app.add_handler(CallbackQueryHandler(button))
+
+    app.run_polling()
 
 
 
