@@ -14,8 +14,9 @@ from telegram.ext import (
 )
 
 # ================== CONFIG ==================
-BOT_TOKEN = "8235313223:AAGlU62C5YI6RNLaR_q9fIo2VfMv3yTTWAw"
-ODDS_API_KEY = "5c5cb9af7ca7fdd266d70692aa8d9a58"
+import os
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ODDS_API_KEY = os.getenv("PDDS_API_KEY")
 
 NHL_ENDPOINT = "https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds"
 MIN_ODDS = 1.45
